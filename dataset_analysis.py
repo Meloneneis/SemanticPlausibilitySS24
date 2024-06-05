@@ -20,7 +20,9 @@ def get_top_words(ds, top_n=20):
     return top_words_dict
 
 
+# this function is generated with GPT-4o
 def plot_word_frequencies(word_freq_dict, title):
+    # creating n subplots horizontally
     fig, axs = plt.subplots(len(word_freq_dict), 1, figsize=(10, 5 * len(word_freq_dict)))
     if len(word_freq_dict) == 1:
         axs = [axs]  # Ensure axs is iterable when there's only one subplot
@@ -51,14 +53,15 @@ def get_lang_count(ds):
     lang_names = set(language for language, _ in ds)
     count_dict = {}
     for lang in lang_names:
+        # if a lang name element in the dataset equals the task name then add 1 to the count
         count_dict[f"{lang}_count"] = sum(1 for lang_name, _ in ds if lang == lang_name)
     return count_dict
 
 
 def get_hallucination_probs(ds):
+    # this function turns the prob in the format {"MT": [0.2, 0.4,...], "PG": [0.8,..], ..}
     task_names = set(ds[list(ds.keys())[0]]["task"])
     length_dict = {task_name: [] for task_name in task_names}
-
     for task, hallu_prob in zip(ds[list(ds.keys())[0]]["task"], ds[list(ds.keys())[0]]["p(Hallucination)"]):
         length_dict[task].append(hallu_prob)
 
