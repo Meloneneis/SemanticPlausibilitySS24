@@ -2,3 +2,7 @@ datasets
 transformers
 matplotlib
 langdetect
+torch
+accelerate
+evaluate
+scikit-learn
