@@ -5,9 +5,9 @@ The following commands will set up the project with a conda interpreter.
   ```
   git clone https://github.com/Meloneneis/SemanticPlausibilitySS24.git
   cd SemanticPlausibilitySS24
-  conda create -n plausibility python=3.12 -y
-  conda activate plausibility
-  pip install -r requirements.txt -y
+  conda create -n plausibility_shroom python=3.11 -y
+  conda activate plausibility_shroom
+  pip install -r requirements.txt
   ```
 
 The project was tested on python version 3.12 with a RTX 3070 Ti (mobile) and 8GB VRAM
@@ -28,7 +28,6 @@ preload_significance_values = False
 skip_training_classifier = False
 
 model_checkpoint = 'OpenAssistant/reward-model-deberta-v3-base'
-version = 1
 ```
 2. Run the model_implementation.py via:
 ````
@@ -38,34 +37,9 @@ python model_implementation.py
 ```
 checkpoint = 'OpenAssistant/reward-model-deberta-v3-base'
 skip_training = False  
-version = 1  
-evaluate_on_test_set = False
-```
-4. Run the synthesized_training.py via:
-````
-python synthesized_training.py
-````
-5. Go to model_implementation.py and change the following run parameters to these values:
-```
-skip_synthesizing_labels = False
-preload_significance_values = False
-skip_training_classifier = False
-
-model_checkpoint = 'synthesized_model_v1'
-version = 2
-```
-6. Run the model_implementation.py via:
-````
-python model_implementation.py
-````
-7. Go to synthesized_training.py and change the following run parameters to these values:
-```
-checkpoint = 'OpenAssistant/reward-model-deberta-v3-base'
-skip_training = False  
-version = 2
 evaluate_on_test_set = True
 ```
-8. Run the synthesized_training.py via:
+4. Run the synthesized_training.py via:
 ````
 python synthesized_training.py
 ````
@@ -76,11 +50,16 @@ Note that the whole pipeline took a couple of hours on the specified GPU.
 Parts of the pipeline can be skipped via the skip/preload parameters in both synthesized_training.py and 
 model_implementation.py. 
 
-To skip model training, one has to download the models from here and extract the models in the models directory
+To skip model training, one has to download the models from here (https://filetransfer.io/manage-package/GJzXlAkK) and 
+overwrite the the model directory if it exists already.
 
-For example, set the following run parameters to only evaluate the final model:
+For example, set the following run parameters to only evaluate the final model on the test set:
 ````
-checkpoint = 'models/synthesized_model_v2'
+checkpoint = 'models/synthesized_model'
 skip_training = True  
 evaluate_on_test_set = True
+````
+Then run the python script via:
+````
+python synthesized_training.py
 ````

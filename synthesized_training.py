@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, TrainingArguments, Trainer, \
     DataCollatorWithPadding
 import evaluate
-from utils import percentile_score
-
+from utils import percentile_score, flip_function
+from peft import LoraConfig, get_peft_model, TaskType, PeftModel
 ########### Run Parameters ####################################
-# version 0: 'OpenAssistant/reward-model-deberta-v3-base'
-# version 1: 'models/synthesized_model_v1'
-# version 2: 'models/synthesized_model_v2'
-checkpoint = 'OpenAssistant/reward-model-deberta-v3-base'
-skip_training = False  # if skip_training is True the current checkpoint will be used on the test set
-version = 1  # this value must be +1 the checkpoint version! (only considered when skip_training=False)
+# to start training from scratch use this as checkpoint: "OpenAssistant/reward-model-deberta-v3-large-v2"
+# to evaluate final model use this for checkpoint: 'models/synthesized_model'
+checkpoint = 'OpenAssistant/reward-model-deberta-v3-large-v2'
+checkpoint = 'models/synthesized_model'
+
+skip_training = True  # if skip_training is True the current checkpoint will be used on the test set
 evaluate_on_test_set = True
 ################################################################
 
@@ -24,8 +24,10 @@ n = 5000  # get the top and bottom n values of the prediction list
 # Load the accuracy metric
 metric = evaluate.load("evaluate-metric/accuracy")
 
+
+
 # Load the dataset
-ds = load_from_disk(os.path.join("shroom_ds", f"labeled_train_ds_v{version}"))
+ds = load_from_disk(os.path.join("shroom_ds", f"labeled_train_ds"))
 
 """
 Given our new train set with the prediction, lets first plot the distribution of the scores.
@@ -111,8 +113,10 @@ def compute_metrics_for_test_set(eval_pred):
 
 
 # Load tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained('OpenAssistant/reward-model-deberta-v3-base')
+tokenizer = AutoTokenizer.from_pretrained('OpenAssistant/reward-model-deberta-v3-large-v2')
 model = AutoModelForSequenceClassification.from_pretrained(checkpoint, num_labels=1)
+lora_config = LoraConfig(task_type=TaskType.SEQ_CLS, r=128, lora_alpha=128, target_modules="all-linear", use_rslora=True)
+model = get_peft_model(model, lora_config)
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
 
@@ -149,21 +153,24 @@ ds_test = ds_test.map(tokenize_function, batched=True)
 ds_test = ds_test.map(label2int)
 ds_test = ds_test.remove_columns(["labels"])
 ds_test = ds_test.rename_column("label", "labels")
-ds.set_format(type='torch', columns=['input_ids', 'attention_mask', "labels"])
+#ds.set_format(type='torch', columns=['input_ids', 'attention_mask', "labels"])
 ds_test.set_format(type='torch', columns=['input_ids', 'attention_mask', "labels"])
 
 # Training arguments
 training_args = TrainingArguments(
     output_dir='./results',
-    eval_strategy="epoch",
+    eval_strategy="no",
     eval_steps=500,
-    learning_rate=2e-5,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=8,
+    learning_rate=3e-5,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=4,
     num_train_epochs=3,
-    logging_steps=100,
+    logging_steps=10,
     logging_first_step=True,
     save_strategy="no",
+    gradient_accumulation_steps=32,
+    fp16=True,
+    seed=1337
 )
 
 # Trainer setup
@@ -179,11 +186,8 @@ trainer = Trainer(
 # Train the model
 if not skip_training:
     trainer.train()
-    trainer.save_model(os.path.join("models", f"synthesized_model_v{version}"))
-
-# Leverage quality samples
-train_ds = trainer.eval_dataset
-train_ds = train_ds.filter()
+    model = model.merge_and_unload()
+    model.save_pretrained(os.path.join("models", f"synthesized_model"))
 
 output = trainer.evaluate()
 print("============Results on the validation set============")
@@ -192,8 +196,12 @@ cutoff = output["eval_best_cutoff"]
 print(f"Selecting best cutoff at {cutoff} to use on test set")
 
 if evaluate_on_test_set:
-    trainer.compute_metrics = compute_metrics
+    trainer.compute_metrics = compute_metrics_for_test_set
     trainer.eval_dataset = ds_test
     output = trainer.evaluate()
     print("============Results on the test set============")
     print(output)
+
+"""
+The final accuracy is at 0.80333.
+"""

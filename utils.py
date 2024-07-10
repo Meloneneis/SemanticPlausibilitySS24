@@ -1,6 +1,6 @@
 import os
 import matplotlib.pyplot as plt
-from transformers import AutoModelForSequenceClassification
+
 
 def plot_accuracies(epoch_accuracies, title):
     # Plotting the accuracy per epoch for each seed
@@ -24,23 +24,10 @@ def flip_function(example):
     return example
 
 
-
-
-def model_init():
-    return AutoModelForSequenceClassification.from_pretrained('OpenAssistant/reward-model-deberta-v3-base',
-                                                              num_labels=1,
-                                                              output_attentions=False,
-                                                              output_hidden_states=False,
-                                                              return_dict=True
-                                                              )
-
-
-# this function was created with GPT-4o
+# get the top and bottom n of the scores
 def percentile_score(scores, n):
     scores = scores.tolist()
     scores = sorted(scores)
-    top_n = scores[len(scores)-n]
-    bottom_n = scores[n-1]
-
+    top_n = scores[len(scores) - n]
+    bottom_n = scores[n - 1]
     return top_n, bottom_n
-

@@ -6,11 +6,11 @@ from datasets import load_dataset, interleave_datasets, concatenate_datasets, lo
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, TrainingArguments, Trainer, \
     DataCollatorWithPadding, TrainerCallback
 import evaluate
-from utils import model_init, flip_function, plot_accuracies
+from utils import flip_function, plot_accuracies
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from scipy import stats
-
+from peft import LoraConfig, get_peft_model, TaskType
 """
 Note: I am aware that there is also the model-aware dataset, but for the sake of working with data scarcity I will
 only consider the model-agnostic dataset.
@@ -26,14 +26,9 @@ For the split I will make sure that the tasks has the original task ratios (whic
 #################### Run Parameters ####################
 skip_synthesizing_labels = True
 preload_significance_values = True
-skip_training_classifier = False
+skip_training_classifier = True
 
-model_checkpoint = 'models/synthesized_model_v1'  # 'OpenAssistant/reward-model-deberta-v3-base'
-version = 2
-
-# to start the run for the second version uncomment the next two lines!
-#model_checkpoint = 'synthesized_model_v1'
-#version = 2
+model_checkpoint = "OpenAssistant/reward-model-deberta-v3-large-v2"
 ########################################################
 # create results directory for the epoch accuracies
 if not os.path.exists("results"):
@@ -152,9 +147,10 @@ hard_valid_ds = hard_valid_ds.map(flip_function)
 valid_ds = valid_ds.map(flip_function)
 
 # Load the tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained('OpenAssistant/reward-model-deberta-v3-base')
+tokenizer = AutoTokenizer.from_pretrained('OpenAssistant/reward-model-deberta-v3-large-v2')
 model = AutoModelForSequenceClassification.from_pretrained(model_checkpoint, num_labels=1)
-
+lora_config = LoraConfig(task_type=TaskType.SEQ_CLS, r=128, lora_alpha=128, use_rslora=True, target_modules="all-linear")
+model = get_peft_model(model, lora_config)
 # Save the initial state of the model for resetting training
 initial_model_state = model.state_dict()
 
@@ -215,12 +211,14 @@ training_args = TrainingArguments(
     eval_strategy="epoch",
     eval_steps=1,
     learning_rate=3e-5,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=8,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=4,
     num_train_epochs=3,
     logging_steps=10,
     logging_first_step=True,
-    save_strategy="no"
+    save_strategy="no",
+    gradient_accumulation_steps=4,
+    fp16=True
 )
 
 
@@ -248,7 +246,7 @@ def compute_metrics(eval_pred):
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
 trainer = Trainer(
-    model_init=model_init,
+    model=model,
     args=training_args,
     train_dataset=interleave_datasets([easy_train_ds, medium_train_ds, hard_train_ds],
                                       stopping_strategy="all_exhausted"),
@@ -387,13 +385,15 @@ print(f"T-statistic: {t_statistic}")
 print(f"P-value: {p_value}")
 
 """
-As can be seen from the p-values and a significance level of 0.05 there is no statistically significant difference
+As can be seen from the p-values and a significance level of 0.05 there is a statistically significant difference
 between training the model curriculum style and on the mixed data. A negative T-statistic indicate that the average
 accuracy for the mixed data is better than training curriculum style.
 
-Given the plot of curriculum learning, the performance drop a lot after training on the hard samples. 
-Hence, let's check whether using hard samples are useful at all by comparing training on all mixed data and all but hard
-samples mixed style. Noticeably, given the plot of training only on the hard samples, some seeds go even below 50% accuracy.
+Interestingly to note for Curriculum Style learning is that for two seeds the performance drops a lot but recovers as
+well. I am not sure what caused this phenomenon.
+
+As can be seen from training only on the hard samples, the model struggles to perform well on the validation set. Hence,
+we are going to compare the accuracy between training mixed style on all the data and without the hard samples.
 """
 # Perform paired t-test
 t_statistic, p_value = stats.ttest_rel(mixed_data_wo_hard, mixed_data)
@@ -403,25 +403,12 @@ print(f"T-statistic: {t_statistic}")
 print(f"P-value: {p_value}")
 
 """
-Now the t-statistic value is positive which indicates that accuracy on the mixed data training without hard
-samples is on average better than the mixed data. With a p-value of 0.0090 this result is also significant. 
-Thus, we can conclude that hard samples are of low quality where the model even gets worse when using them and so we
-will only consider training the classifier with all data but the hard samples.
+The t-statistic value is negative which indicates that accuracy on the mixed data training without hard
+samples is on average better than the mixed data. However, with a p-value of 0.5660 this result is not significant. 
+Nevertheless, givevn the negative t-statistic value and the the performance on training only on the hard samples, we 
+will discard training on the hard samples for the classifier.
 
-So now, we will train a classifier for synthesizing the labels in the unlabeled training data. Another strategy we
-are going to employ is looping over our training phases to improve our final model. The steps are then as follows:
-training_data1 : labeled dev set with a small holdout for validation
-training_data2 : synthesized labeled train set with dev set for validation
-1. Train reward model on training_data1 -> classifier1
-2. Use classifier1 to create training_data2
-3. Train reward model on training_data2 -> classifier2
-4. Further train classifier2 on training_data1 (Rationale: this should be an improvement compared to classifier1)
-5. Use classifier2 to create a new training_data2
-6. Train reward model on new training_data2 -> final_classifier
-
-Note: The reason we are not using classifier1 on step 3 is because classifier1 has already seen our validation data,
-and therefore it should not be used to further train it with the newly created training_data2. The same goes for 
-classifier2 on step 6.
+So now, we will train a classifier for synthesizing the labels in the unlabeled training data. 
 """
 
 # Training on all mixed data again
@@ -438,9 +425,10 @@ if not skip_training_classifier:
     print("Training on all but hard samples mixed style")
     model.load_state_dict(initial_model_state)
     trainer.train()
-    trainer.save_model(os.path.join("models", f"classifier_v{version}"))
+    model = model.merge_and_unload()
+    model.save_pretrained(os.path.join("models", f"classifier"))
 else:
-    model = AutoModelForSequenceClassification.from_pretrained(os.path.join("models", f"classifier_v{version}"))
+    model = AutoModelForSequenceClassification.from_pretrained(os.path.join("models", f"classifier")).to("cuda")
 """
 Lastly, we are adding the prediction scores to the unlabeled train set and to continue go to synthesized_training.py
 """
@@ -450,7 +438,7 @@ if not skip_synthesizing_labels:
     unlabeled_train_ds = unlabeled_train_ds.map(tokenize_function, batched=True)
     unlabeled_train_ds = unlabeled_train_ds.filter(lambda x: len(x["input_ids"]) <= tokenizer.model_max_length)
     unlabeled_train_ds.set_format(type='torch', columns=['input_ids', 'attention_mask'])
-    dataloader = DataLoader(unlabeled_train_ds, batch_size=16)
+    dataloader = DataLoader(unlabeled_train_ds, batch_size=12)
     model.eval()
     label = []
     for i, batch in tqdm.tqdm(enumerate(dataloader), desc="Processing batches", total=len(dataloader)):
@@ -462,7 +450,7 @@ if not skip_synthesizing_labels:
         label.extend(values)
 
     labeled_train_ds = unlabeled_train_ds.add_column("prediction", label)
-    labeled_train_ds.save_to_disk(os.path.join("shroom_ds", f"labeled_train_ds_v{version}"))
+    labeled_train_ds.save_to_disk(os.path.join("shroom_ds", f"labeled_train_ds"))
 
 """
 References:
