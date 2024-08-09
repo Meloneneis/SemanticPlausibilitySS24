@@ -1,13 +1,22 @@
 import os
+import numpy as np
 import matplotlib.pyplot as plt
 
 
 def plot_accuracies(epoch_accuracies, title):
     # Plotting the accuracy per epoch for each seed
     plt.figure(figsize=(10, 6))
+    all_accuracies = []
+
     for seed, accuracies in epoch_accuracies.items():
         epochs = range(1, len(accuracies) + 1)
         plt.plot(epochs, accuracies, marker='o', linestyle='-', label=f'Seed {seed}')
+        all_accuracies.append(accuracies)
+
+    # Calculate the average accuracy for each epoch
+    avg_accuracies = np.mean(all_accuracies, axis=0)
+    epochs = range(1, len(avg_accuracies) + 1)
+    plt.plot(epochs, avg_accuracies, marker='x', linestyle='--', color='black', label='Average')
 
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')

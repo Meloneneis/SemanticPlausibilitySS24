@@ -23,7 +23,7 @@ n = 5000  # get the top and bottom n values of the prediction list
 
 # Load the accuracy metric
 metric = evaluate.load("evaluate-metric/accuracy")
-
+metric2 = evaluate.load("evaluate-metric/roc_auc")
 
 
 # Load the dataset
@@ -104,11 +104,14 @@ def compute_metrics(eval_pred):
 
 def compute_metrics_for_test_set(eval_pred):
     predictions, labels = eval_pred
+
     predictions = predictions.squeeze()
     output = {}
     binary_predictions = (predictions >= cutoff).astype(int)
     accuracy = metric.compute(predictions=binary_predictions, references=labels)["accuracy"]
+    roc = metric2.compute(prediction_scores=binary_predictions, references=labels)['roc_auc']
     output[f"accuracy"] = accuracy
+    output["roc"] = roc
     return output
 
 

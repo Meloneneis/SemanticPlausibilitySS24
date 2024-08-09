@@ -24,7 +24,7 @@ Hence, I will use 80% labeled dev set data as the training data and the remainin
 For the split I will make sure that the tasks has the original task ratios (which are somewhat balanced already).
 """
 #################### Run Parameters ####################
-skip_synthesizing_labels = True
+skip_synthesizing_labels = False
 preload_significance_values = True
 skip_training_classifier = True
 
@@ -67,9 +67,9 @@ valid_ds = concatenate_datasets([valid_ds_mt, valid_ds_pg, valid_ds_dm])
 train_ds = train_ds.shuffle(seed=1337)
 valid_ds = valid_ds.shuffle(seed=1337)
 """
-Next we will sort the data from easy to hard in accordance to Curriculum Learning [1]. Intuitively, hard data points are
-the ones for which humans don't have high agreement and easier samples are the ones where they do.
-First, let's check how many annotations per data sample exists.
+    Next we will sort the data from easy to hard in accordance to Curriculum Learning [1]. Intuitively, hard data points are
+    the ones for which humans don't have high agreement and easier samples are the ones where they do.
+    First, let's check how many annotations per data sample exists.
 """
 print(set(len(element) for element in ds["valid"]["labels"]))  # returns 5
 
@@ -454,6 +454,6 @@ if not skip_synthesizing_labels:
 
 """
 References:
-[1] https://qmro.qmul.ac.uk/xmlui/bitstream/handle/123456789/15972/Bengio%2C%202009%20Curriculum%20Learning.pdf
+h
 [2] https://huggingface.co/OpenAssistant/reward-model-deberta-v3-base
 """
